@@ -1,8 +1,5 @@
 __pycache__/
 *.pyc
-config_citas.json
-estado_citas.json
-alerta_citas.log
-capturas/
+estado.json
 .env
 .env.local

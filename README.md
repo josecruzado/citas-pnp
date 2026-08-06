@@ -74,7 +74,6 @@ SEDE=1
 FECHA_OBJETIVO=
 NTFY_TOPIC=un-tema-largo-y-dificil-de-adivinar
 INTERVALO_MIN=5
-PUBLICAR=0
 ```
 
 Notas:

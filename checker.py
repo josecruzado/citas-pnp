@@ -5,14 +5,14 @@
   CHECKER  ·  Monitor de citas Lunas Oscurecidas (PNP)
 ================================================================================
 
-  Se ejecuta cada pocos minutos en GitHub Actions. Consulta el sistema de citas
-  con UNA sola cuenta (la del operador), escribe el resultado en web/estado.json
-  y, si hay cupo, difunde un aviso push a todos los suscriptores via ntfy.
+  Se ejecuta cada pocos minutos dentro de Docker, desde la conexion del usuario.
+  Consulta el sistema de citas con UNA sola cuenta y, si hay cupo, difunde un
+  aviso push a todos los suscriptores via ntfy.
 
   Los usuarios NUNCA entregan sus credenciales: los cupos son los mismos para
   todos, asi que basta una cuenta para consultarlos.
 
-  Variables de entorno (GitHub Secrets):
+  Variables de entorno (.env.local):
       PNP_DNI          documento del operador          (obligatorio)
       PNP_CLAVE        clave del operador              (obligatorio)
       NTFY_TOPIC       tema publico de difusion        (obligatorio)
@@ -21,7 +21,7 @@
       FECHA_OBJETIVO   AAAA-MM-DD, avisa solo si es antes  (opcional)
       NTFY_SERVER      servidor ntfy                   (por defecto ntfy.sh)
 
-  Salida: web/estado.json  ·  codigo 0 siempre que la revision se complete.
+  Salida: estado.json local  ·  codigo 0 siempre que la revision se complete.
 ================================================================================
 """
 
@@ -40,7 +40,7 @@ from playwright.sync_api import TimeoutError as PWTimeout, sync_playwright
 # --------------------------------------------------------------------------- #
 
 BASE_DIR = Path(__file__).resolve().parent
-ESTADO = BASE_DIR / "web" / "estado.json"
+ESTADO = BASE_DIR / "estado.json"
 
 URL_LOGIN = "https://sistemas.policia.gob.pe/lunasoscurecidas/Solicitud_Menu.aspx"
 
