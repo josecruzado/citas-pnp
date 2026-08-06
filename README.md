@@ -1,5 +1,13 @@
 # Alerta de Citas · Lunas Oscurecidas (PNP)
 
+¿Vas a compartirlo con un familiar? Sigue la guía completa para
+[instalarlo con Docker en Windows o macOS](GUIA_PARA_FAMILIARES.md).
+
+> **Modo actual recomendado:** Docker local + ntfy. El monitor se ejecuta desde la
+> conexión residencial de cada persona y solo envía alertas push; no usa GitHub ni
+> actualiza Vercel. Las secciones antiguas de GitHub Actions/Vercel se conservan como
+> referencia de una alternativa que puede fallar por bloqueo de IP de datacenter.
+
 Vigila el sistema de citas de la PNP cada 5 minutos y avisa por notificación push cuando se libera un cupo. Los usuarios solo se suscriben — **nadie entrega su DNI ni su clave**.
 
 ## Por qué está partido en dos servicios
@@ -92,6 +100,47 @@ Listo. Comparte la URL: quien entre ve el estado en vivo y se suscribe en dos to
 La página lee `estado.json` directamente desde GitHub, así que se actualiza sin necesidad de redesplegar Vercel. En paralelo, cuando aparece un cupo nuevo el checker publica en ntfy y todos los suscriptores reciben el push a la vez.
 
 El aviso solo se dispara cuando el conjunto de fechas **cambia**, no en cada revisión. Así nadie recibe el mismo mensaje veinte veces.
+
+---
+
+## Ejecución aislada con Docker (recomendada si la PNP bloquea GitHub Actions)
+
+GitHub Actions y otros proveedores cloud usan IPs de centros de datos, que el sitio de la
+PNP puede rechazar. Esta modalidad conserva la web desplegada en Vercel y ejecuta el
+monitor desde tu conexión residencial, dentro de Docker: Python, Chromium y Playwright
+no se instalan en macOS.
+
+Requisitos: Docker Desktop iniciado, una llave SSH de GitHub cargada en el agente de
+macOS, y una copia local de este repositorio. Comprueba la llave con:
+
+```bash
+ssh -T git@github.com
+```
+
+Prepara la configuración privada una sola vez:
+
+```bash
+cp .env.local.example .env.local
+```
+
+Completa `PNP_DNI`, `PNP_CLAVE` y `NTFY_TOPIC` en `.env.local`. El archivo está ignorado
+por Git; no debe subirse al repositorio. Después inicia el servicio:
+
+```bash
+docker compose up -d --build
+```
+
+El contenedor revisa cada cinco minutos y se reinicia automáticamente tras reinicios de
+Docker. Esta modalidad solo envía alertas a ntfy: no usa GitHub, SSH ni actualiza Vercel.
+Verifica que funciona con:
+
+```bash
+docker compose logs -f monitor-citas
+```
+
+Para detenerlo: `docker compose down`. Para actualizarlo tras cambios: `docker compose up -d --build`.
+La programación de GitHub Actions queda desactivada para evitar consultas desde IPs de
+datacenter; Vercel continúa sirviendo la página pública sin cambios.
 
 ---
 

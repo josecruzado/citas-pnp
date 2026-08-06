@@ -1,10 +1,9 @@
 name: Monitor de citas PNP
 
 on:
-  schedule:
-    # Cada 5 minutos. GitHub puede retrasar la ejecucion en horas de mucha carga.
-    - cron: "*/5 * * * *"
-  workflow_dispatch:        # permite lanzarlo a mano desde la pestaña Actions
+  # La ejecucion programada se hace en Docker, desde una conexion residencial.
+  # GitHub-hosted Actions sale desde IPs de datacenter y la PNP puede bloquearlas.
+  workflow_dispatch:        # solo para diagnostico manual
 
 permissions:
   contents: write           # necesario para hacer commit de web/estado.json

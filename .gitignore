@@ -5,3 +5,4 @@ estado_citas.json
 alerta_citas.log
 capturas/
 .env
+.env.local

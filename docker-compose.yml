@@ -1,0 +1,16 @@
+services:
+  monitor-citas:
+    build:
+      context: .
+    container_name: monitor-citas-pnp
+    restart: unless-stopped
+    init: true
+    working_dir: /app
+    env_file:
+      - .env.local
+    environment:
+      # Este monitor solo alerta por ntfy; nunca usa GitHub ni publica estado.json.
+      PUBLICAR_DOCKER: "0"
+    volumes:
+      # Las credenciales se leen en modo privado; no se copian a la imagen.
+      - ./.env.local:/app/.env.local:ro
