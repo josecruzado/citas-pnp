@@ -1,157 +1,164 @@
-# Alerta de Citas · Lunas Oscurecidas (PNP)
+# Alerta de citas PNP · Lunas oscurecidas
 
-¿Vas a compartirlo con un familiar? Sigue la guía completa para
-[instalarlo con Docker en Windows o macOS](GUIA_PARA_FAMILIARES.md).
+Este proyecto revisa automáticamente si hay citas disponibles para **Lunas
+Oscurecidas** de la Policía Nacional del Perú y te avisa al celular mediante
+**ntfy** cuando aparece un cupo.
 
-> **Modo actual recomendado:** Docker local + ntfy. El monitor se ejecuta desde la
-> conexión residencial de cada persona y solo envía alertas push; no usa GitHub ni
-> actualiza Vercel. Las secciones antiguas de GitHub Actions/Vercel se conservan como
-> referencia de una alternativa que puede fallar por bloqueo de IP de datacenter.
+Funciona desde tu propia computadora y tu propia conexión a internet en Perú.
+No usa GitHub Actions, no publica información en una web y no reserva citas.
+La reserva siempre la haces tú en la página de la PNP, donde se solicita captcha.
 
-Vigila el sistema de citas de la PNP cada 5 minutos y avisa por notificación push cuando se libera un cupo. Los usuarios solo se suscriben — **nadie entrega su DNI ni su clave**.
+## Antes de empezar
 
-## Por qué está partido en dos servicios
+Necesitas:
 
-Vercel no puede hacer la vigilancia: sus funciones son serverless (se ejecutan y mueren, no mantienen un proceso vivo) y su cron gratuito corre **una vez al día**. GitHub Actions sí permite cron cada 5 minutos, gratis e ilimitado en repositorios públicos, y ejecuta Chromium sin problema.
+- Una PC con Windows 10/11 o una Mac conectada a internet.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+- La app **ntfy** instalada en tu Android o iPhone.
+- Tu documento y clave del sistema de citas PNP.
 
-Así que: **GitHub Actions vigila, Vercel muestra.**
+> La computadora debe permanecer encendida, con Docker Desktop abierto y sin entrar
+> en reposo para que el monitor continúe revisando las citas.
 
-## Piezas
+## 1. Descargar el proyecto
 
-| Archivo | Qué hace |
-|---|---|
-| `checker.py` | Consulta el sitio con una cuenta, escribe `web/estado.json`, difunde por ntfy |
-| `.github/workflows/citas.yml` | Cron cada 5 min |
-| `web/index.html` | Página pública con el estado y el botón de suscripción |
-| `vercel.json` | Configuración del despliegue |
-| `alerta_citas_app.py` | App de escritorio, por si prefieres correrlo local |
+En GitHub pulsa **Code** → **Download ZIP** y descomprime el archivo en una carpeta,
+por ejemplo `Documentos/monitor-citas-pnp`.
 
----
+No necesitas instalar Python, Playwright ni Chromium: Docker los ejecuta de forma
+aislada dentro del contenedor.
 
-## Despliegue automático (recomendado)
+## 2. Instalar y preparar Docker Desktop
 
-Desde la carpeta del proyecto:
+Descarga Docker Desktop para tu sistema operativo, instálalo y ábrelo. Espera a que
+indique que Docker está funcionando.
 
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
+Para que el monitor se recupere después de reiniciar la computadora, activa esta
+opción en Docker Desktop:
 
-El script comprueba que tengas `git` y `gh`, inicia sesión en GitHub si hace falta, te pide los datos, crea el repositorio, carga los secrets cifrados, sube todo, personaliza la página con tu usuario y lanza la primera revisión. Al terminar te deja solo dos pasos: conectar Vercel y suscribirte en el móvil.
+- **macOS:** Settings → General → *Start Docker Desktop when you log in*.
+- **Windows:** Settings → General → *Start Docker Desktop when you sign in*.
 
-Necesitas [GitHub CLI](https://cli.github.com). En Windows, ejecútalo desde Git Bash o WSL.
+En una laptop, déjala conectada a la corriente y configura el sistema para evitar el
+reposo mientras esté funcionando.
 
-Si prefieres hacerlo a mano, o el script falla en algún punto, sigue los pasos de abajo.
+## 3. Crear tu configuración privada
 
----
+Abre una terminal dentro de la carpeta que descomprimiste.
 
-## Despliegue manual
+- **macOS:** abre Terminal, escribe `cd ` (con un espacio), arrastra la carpeta a la
+  ventana y pulsa Enter.
+- **Windows:** abre la carpeta en el Explorador, haz clic derecho en un espacio vacío
+  y elige **Open in Terminal**.
 
-### 1. Sube el proyecto a GitHub
-
-Crea un repositorio **público** llamado `citas-pnp` (público para que Actions sea ilimitado) y sube estos archivos.
-
-### 2. Elige tu tema de ntfy
-
-Un nombre difícil de adivinar, por ejemplo `citas-pnp-a7f3c9e2b1`. Anótalo: lo usarás en dos sitios.
-
-### 3. Configura los secrets
-
-En el repo: **Settings → Secrets and variables → Actions**.
-
-En la pestaña *Secrets*, botón *New repository secret*:
-
-| Nombre | Valor |
-|---|---|
-| `PNP_DNI` | tu documento |
-| `PNP_CLAVE` | tu clave |
-| `NTFY_TOPIC` | el tema del paso 2 |
-
-En la pestaña *Variables* (opcionales):
-
-| Nombre | Valor |
-|---|---|
-| `SEDE` | `1` para Lima-La Victoria |
-| `FECHA_OBJETIVO` | `2026-11-20` — avisa solo de cupos anteriores. Vacío = cualquiera |
-| `PNP_TIPO_DOC` | `1` DNI · `2` carnet de extranjería |
-
-### 4. Activa el workflow
-
-Pestaña **Actions** → habilita los workflows → abre *Monitor de citas PNP* → **Run workflow**. Debería terminar en verde y dejar un commit nuevo en `web/estado.json`.
-
-### 5. Publica la página en Vercel
-
-Antes de desplegar, edita las tres líneas del final de `web/index.html`:
-
-```js
-const USUARIO_REPO = "tu-usuario";
-const NOMBRE_REPO  = "citas-pnp";
-const TEMA_NTFY    = "citas-pnp-a7f3c9e2b1";
-```
-
-Luego en vercel.com: **Add New → Project**, importa el repositorio, y despliega. La configuración ya viene en `vercel.json`, no toques nada.
-
-Listo. Comparte la URL: quien entre ve el estado en vivo y se suscribe en dos toques.
-
----
-
-## Cómo llegan las alertas
-
-La página lee `estado.json` directamente desde GitHub, así que se actualiza sin necesidad de redesplegar Vercel. En paralelo, cuando aparece un cupo nuevo el checker publica en ntfy y todos los suscriptores reciben el push a la vez.
-
-El aviso solo se dispara cuando el conjunto de fechas **cambia**, no en cada revisión. Así nadie recibe el mismo mensaje veinte veces.
-
----
-
-## Ejecución aislada con Docker (recomendada si la PNP bloquea GitHub Actions)
-
-GitHub Actions y otros proveedores cloud usan IPs de centros de datos, que el sitio de la
-PNP puede rechazar. Esta modalidad conserva la web desplegada en Vercel y ejecuta el
-monitor desde tu conexión residencial, dentro de Docker: Python, Chromium y Playwright
-no se instalan en macOS.
-
-Requisitos: Docker Desktop iniciado, una llave SSH de GitHub cargada en el agente de
-macOS, y una copia local de este repositorio. Comprueba la llave con:
+Luego crea tu archivo privado de configuración:
 
 ```bash
-ssh -T git@github.com
-```
-
-Prepara la configuración privada una sola vez:
-
-```bash
+# macOS
 cp .env.local.example .env.local
 ```
 
-Completa `PNP_DNI`, `PNP_CLAVE` y `NTFY_TOPIC` en `.env.local`. El archivo está ignorado
-por Git; no debe subirse al repositorio. Después inicia el servicio:
+```powershell
+# Windows PowerShell
+Copy-Item .env.local.example .env.local
+```
+
+Abre el archivo `.env.local` con Bloc de notas, TextEdit en modo texto plano o VS Code
+y completa los valores:
+
+```dotenv
+PNP_DNI=TU_DOCUMENTO
+PNP_CLAVE=TU_CLAVE
+PNP_TIPO_DOC=1
+SEDE=1
+FECHA_OBJETIVO=
+NTFY_TOPIC=un-tema-largo-y-dificil-de-adivinar
+INTERVALO_MIN=5
+PUBLICAR=0
+```
+
+Notas:
+
+- `PNP_TIPO_DOC=1` es DNI; usa `2` para carnet de extranjería.
+- `SEDE=1` corresponde a Lima–La Victoria. Cámbialo si la PNP te indica otro código.
+- Deja `FECHA_OBJETIVO` vacío para recibir cualquier cita. Si ya tienes una cita y
+  buscas una más próxima, escribe la fecha actual como `AAAA-MM-DD`.
+- Para `NTFY_TOPIC`, inventa un nombre largo y difícil de adivinar, por ejemplo
+  `citas-familia-7d92a1f4b8`. Ese será tu canal privado de alertas.
+
+Nunca compartas `.env.local`: contiene tus credenciales PNP.
+
+## 4. Configurar ntfy en el celular
+
+1. Instala **ntfy** desde App Store o Google Play.
+2. Abre la app y pulsa `+` para añadir una suscripción.
+3. Escribe exactamente el mismo valor que colocaste en `NTFY_TOPIC`.
+4. Permite las notificaciones cuando el celular las solicite.
+
+## 5. Iniciar el monitor
+
+En la misma terminal ejecuta:
 
 ```bash
 docker compose up -d --build
 ```
 
-El contenedor revisa cada cinco minutos y se reinicia automáticamente tras reinicios de
-Docker. Esta modalidad solo envía alertas a ntfy: no usa GitHub, SSH ni actualiza Vercel.
-Verifica que funciona con:
+La primera instalación tarda algunos minutos porque Docker descarga Chromium. Al
+terminar, el monitor revisa el sistema PNP cada cinco minutos y se reinicia solo si
+Docker Desktop o la computadora se reinician.
+
+Para confirmar que funciona:
 
 ```bash
 docker compose logs -f monitor-citas
 ```
 
-Para detenerlo: `docker compose down`. Para actualizarlo tras cambios: `docker compose up -d --build`.
-La programación de GitHub Actions queda desactivada para evitar consultas desde IPs de
-datacenter; Vercel continúa sirviendo la página pública sin cambios.
+Debes ver mensajes parecidos a:
 
----
+```text
+Sesion iniciada.
+Fechas con cupo: 0 | Sin Cupos
+Sin cupos por ahora.
+```
 
-## Lo que conviene tener claro
+Pulsa `Ctrl+C` para dejar de ver los mensajes; **no** detiene el monitor.
 
-**El cron de GitHub se retrasa.** `*/5 * * * *` es la intención, no una garantía: en horas de mucha carga la cola puede irse a 10 o 15 minutos. Para el caso de uso es aceptable, pero no prometas "aviso en 5 minutos exactos". Si necesitas precisión real, la alternativa es una VM pequeña (Oracle Cloud tiene un nivel gratuito permanente) corriendo `alerta_citas_app.py --consola`.
+## Cómo llegan las alertas
 
-**Tu cuenta es la que consulta.** Todas las revisiones salen de tus credenciales. Si el sistema detecta actividad inusual, la cuenta afectada es la tuya, no la de los usuarios. Por eso el intervalo no baja de 5 minutos.
+Cuando aparezca al menos una fecha con cupo, ntfy enviará una notificación push al
+celular con la fecha, horarios disponibles y el número de cupos. Al tocarla podrás
+abrir la página de citas PNP.
 
-**Nunca pidas credenciales ajenas.** El diseño evita esto a propósito. Si en algún momento te tienta añadir un formulario donde cada usuario ponga su DNI y clave para "reservar automáticamente", ten presente que pasarías a custodiar credenciales de un sistema policial de terceros, con la exposición legal que eso implica bajo la Ley 29733 de protección de datos personales. La arquitectura actual no tiene ese problema porque no hay nada que custodiar.
+El monitor evita repetir el mismo aviso: solo vuelve a alertar cuando cambian las
+fechas encontradas. Si no hay cupos, no envía notificaciones.
 
-**El captcha es real.** Está en el HTML dentro de `<div id="MainContent_idUcitas_divcontiene2" style="display:none;">` y el sitio lo muestra justo cuando hay cupo. Por eso el sistema avisa pero no reserva.
+## Comandos útiles
 
-**Si rediseñan el sitio**, todos los selectores están agrupados al inicio de `checker.py`, en un solo bloque. Ajustarlos es cuestión de minutos.
+```bash
+# Confirmar que el monitor está activo
+docker compose ps
+
+# Ver las últimas revisiones
+docker compose logs --tail=50 monitor-citas
+
+# Detenerlo temporalmente
+docker compose stop
+
+# Volver a iniciarlo
+docker compose start
+
+# Aplicar una actualización del proyecto
+docker compose up -d --build
+
+# Eliminar el contenedor (no elimina tu archivo .env.local)
+docker compose down
+```
+
+## Privacidad y límites
+
+- Las credenciales permanecen solo en tu computadora, dentro de `.env.local`.
+- El monitor no usa GitHub ni una página web durante su funcionamiento.
+- La disponibilidad puede cambiar en segundos; una alerta no garantiza que el cupo
+  siga libre cuando abras el sistema.
+- La PNP solicita captcha para reservar, por lo que este proyecto solo consulta y
+  avisa.
