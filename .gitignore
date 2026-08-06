@@ -3,3 +3,5 @@ __pycache__/
 estado.json
 .env
 .env.local
+.DS_Store
+**/.DS_Store
