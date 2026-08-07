@@ -82,8 +82,19 @@ Notas:
 - `SEDE=1` corresponde a Lima–La Victoria. Cámbialo si la PNP te indica otro código.
 - Deja `FECHA_OBJETIVO` vacío para recibir cualquier cita. Si ya tienes una cita y
   buscas una más próxima, escribe la fecha actual como `AAAA-MM-DD`.
-- Para `NTFY_TOPIC`, inventa un nombre largo y difícil de adivinar, por ejemplo
-  `citas-familia-7d92a1f4b8`. Ese será tu canal privado de alertas.
+- `NTFY_TOPIC` es **obligatorio**: es tu canal privado de alertas. Cualquiera que
+  conozca el nombre puede leer tus avisos, así que no uses uno adivinable ni lo
+  publiques en ningún sitio. Genera uno al azar así:
+
+  ```bash
+  # macOS
+  echo "citas-$(openssl rand -hex 8)"
+  ```
+
+  ```powershell
+  # Windows PowerShell
+  "citas-" + [System.Guid]::NewGuid().ToString("N").Substring(0,16)
+  ```
 
 Nunca compartas `.env.local`: contiene tus credenciales PNP.
 
@@ -124,12 +135,19 @@ Pulsa `Ctrl+C` para dejar de ver los mensajes; **no** detiene el monitor.
 
 ## Cómo llegan las alertas
 
-Cuando aparezca al menos una fecha con cupo, ntfy enviará una notificación push al
-celular con la fecha, horarios disponibles y el número de cupos. Al tocarla podrás
-abrir la página de citas PNP.
+Recibirás tres tipos de notificación, para que el silencio nunca sea ambiguo:
 
-El monitor evita repetir el mismo aviso: solo vuelve a alertar cuando cambian las
-fechas encontradas. Si no hay cupos, no envía notificaciones.
+| Notificación | Cuándo llega |
+|---|---|
+| 🚨 **Cupo disponible** | Aparece una fecha con cupo. Incluye fecha, horarios y número de cupos; al tocarla se abre la página de la PNP. |
+| ⚠️ **Monitor averiado** | Tres revisiones seguidas fallaron. Suele significar que tu clave PNP caducó o que el sitio cambió. |
+| 💓 **Monitor activo** | Una vez al día, en silencio, para confirmar que sigue vigilando. |
+
+El monitor no repite el mismo aviso: solo vuelve a alertar si cambia la fecha, el
+horario o la cantidad de cupos. Si no hay cupos, no envía nada.
+
+La primera revisión manda un **Monitor activo** de inmediato. Si no lo recibes,
+la suscripción de ntfy no está bien configurada.
 
 ## Comandos útiles
 
@@ -151,7 +169,14 @@ docker compose up -d --build
 
 # Eliminar el contenedor (no elimina tu archivo .env.local)
 docker compose down
+
+# Probar una sola revisión y ver el resultado al momento
+docker compose run --rm monitor-citas bash ./run_local.sh --once
 ```
+
+El historial se guarda en la carpeta `datos/`, fuera del contenedor: sobrevive a
+reinicios y actualizaciones, así que el monitor no te repetirá un aviso que ya
+recibiste.
 
 ## Privacidad y límites
 

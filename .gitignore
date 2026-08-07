@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 estado.json
+datos/
 .env
 .env.local
 .DS_Store

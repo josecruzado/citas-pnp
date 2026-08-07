@@ -6,8 +6,14 @@ services:
     restart: unless-stopped
     init: true
     working_dir: /app
+    environment:
+      # Sin esto los registros saldrian en UTC, cinco horas adelantados.
+      TZ: America/Lima
     env_file:
       - .env.local
     volumes:
       # Las credenciales se leen en modo privado; no se copian a la imagen.
       - ./.env.local:/app/.env.local:ro
+      # El estado vive fuera del contenedor: sobrevive a `up --build` y evita
+      # que se repita una alerta ya enviada.
+      - ./datos:/app/datos

@@ -34,6 +34,8 @@ set -a; source .env.local; set +a
 
 : "${PNP_DNI:?Falta PNP_DNI en .env.local}"
 : "${PNP_CLAVE:?Falta PNP_CLAVE en .env.local}"
+# Sin tema de ntfy el monitor correria a ciegas: nunca podria avisarte.
+: "${NTFY_TOPIC:?Falta NTFY_TOPIC en .env.local}"
 INTERVALO_MIN="${INTERVALO_MIN:-5}"
 
 PY="$(command -v python3 || command -v python)"

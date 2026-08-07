@@ -21,7 +21,13 @@
       FECHA_OBJETIVO   AAAA-MM-DD, avisa solo si es antes  (opcional)
       NTFY_SERVER      servidor ntfy                   (por defecto ntfy.sh)
 
-  Salida: estado.json local  ·  codigo 0 siempre que la revision se complete.
+  Salida: datos/estado.json  ·  codigo 0 si la revision se completo,
+          1 si falta configuracion, 2 si la revision fallo (activa el
+          backoff de run_local.sh).
+
+  El monitor tambien avisa cuando el que falla es el propio monitor: tras
+  varios errores seguidos manda una alerta, otra al recuperarse, y un latido
+  diario para que el silencio nunca sea ambiguo.
 ================================================================================
 """
 
@@ -31,7 +37,7 @@ import json
 import os
 import re
 import sys
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -40,7 +46,13 @@ from playwright.sync_api import TimeoutError as PWTimeout, sync_playwright
 # --------------------------------------------------------------------------- #
 
 BASE_DIR = Path(__file__).resolve().parent
-ESTADO = BASE_DIR / "estado.json"
+DATOS = BASE_DIR / "datos"
+ESTADO = DATOS / "estado.json"
+
+# Cuantos fallos seguidos antes de avisar que el monitor esta roto, y cada
+# cuanto mandar el latido de "sigo vivo".
+FALLOS_PARA_AVISAR = 3
+HORAS_ENTRE_LATIDOS = 24
 
 URL_LOGIN = "https://sistemas.policia.gob.pe/lunasoscurecidas/Solicitud_Menu.aspx"
 
@@ -219,30 +231,73 @@ def filtrar(cupos: list[dict]) -> list[dict]:
 
 # --------------------------------------------------------------------------- #
 
-def avisar_ntfy(cupos: list[dict]) -> None:
+def enviar_ntfy(titulo: str, cuerpo: str, prioridad: str, tags: str) -> bool:
     if not ENV["ntfy_topic"]:
         log("Sin NTFY_TOPIC: no difundo aviso.")
-        return
+        return False
+    try:
+        r = requests.post(
+            f"{ENV['ntfy_server']}/{ENV['ntfy_topic']}",
+            data=cuerpo.encode("utf-8"),
+            headers={"Title": titulo.encode("utf-8"),
+                     "Priority": prioridad,
+                     "Tags": tags,
+                     "Click": URL_LOGIN,
+                     "Actions": f"view, Abrir sistema, {URL_LOGIN}"},
+            timeout=25)
+        r.raise_for_status()
+        return True
+    except Exception as e:  # noqa: BLE001
+        log(f"ERROR: ntfy fallo: {e}")
+        return False
+
+
+def avisar_cupos(cupos: list[dict]) -> None:
     lineas = []
     for c in cupos:
         horas = ", ".join(c["horas"][:8]) if c["horas"] else "(ver en el sitio)"
         lineas.append(f"* {c['fecha']}\n  Horas: {horas}\n  Cupos: {c['cupos']}")
     cuerpo = ("HAY CUPO DE CITA DISPONIBLE\n\n" + "\n\n".join(lineas) +
               "\n\nEntra YA y reserva. El formulario te pedira un captcha.")
-    try:
-        r = requests.post(
-            f"{ENV['ntfy_server']}/{ENV['ntfy_topic']}",
-            data=cuerpo.encode("utf-8"),
-            headers={"Title": "CUPO DE CITA DISPONIBLE".encode("utf-8"),
-                     "Priority": "urgent",
-                     "Tags": "rotating_light",
-                     "Click": URL_LOGIN,
-                     "Actions": f"view, Abrir sistema, {URL_LOGIN}"},
-            timeout=25)
-        r.raise_for_status()
+    if enviar_ntfy("CUPO DE CITA DISPONIBLE", cuerpo, "urgent", "rotating_light"):
         log("Aviso difundido por ntfy.")
-    except Exception as e:  # noqa: BLE001
-        log(f"ERROR: ntfy fallo: {e}")
+
+
+def avisar_averiado(fallos: int, detalle: str) -> None:
+    cuerpo = (f"El monitor lleva {fallos} revisiones seguidas fallando y no "
+              f"puede comprobar si hay citas.\n\nUltimo error:\n{detalle}\n\n"
+              "Suele deberse a que la clave PNP caduco o a que el sitio cambio. "
+              "Revisa los registros con:\n"
+              "docker compose logs --tail=50 monitor-citas")
+    if enviar_ntfy("MONITOR AVERIADO", cuerpo, "high", "warning"):
+        log("Aviso de averia difundido por ntfy.")
+
+
+def avisar_recuperado() -> None:
+    if enviar_ntfy("Monitor recuperado",
+                   "El monitor volvio a revisar las citas con normalidad.",
+                   "default", "white_check_mark"):
+        log("Aviso de recuperacion difundido por ntfy.")
+
+
+def toca_latido(previo: dict) -> bool:
+    ultimo = previo.get("ultimo_latido")
+    if not ultimo:
+        return True
+    try:
+        marca = datetime.fromisoformat(ultimo)
+    except ValueError:
+        return True
+    return datetime.now(timezone.utc) - marca >= timedelta(hours=HORAS_ENTRE_LATIDOS)
+
+
+def enviar_latido(revisiones: int) -> bool:
+    cuerpo = (f"El monitor sigue funcionando. Lleva {revisiones} revisiones.\n"
+              "Si hubiera un cupo, ya te habria avisado.")
+    if enviar_ntfy("Monitor activo", cuerpo, "low", "heartbeat"):
+        log("Latido diario difundido por ntfy.")
+        return True
+    return False
 
 
 def leer_estado_previo() -> dict:
@@ -256,24 +311,34 @@ def leer_estado_previo() -> dict:
 
 def escribir_estado(datos: dict) -> None:
     ESTADO.parent.mkdir(parents=True, exist_ok=True)
-    ESTADO.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Escritura atomica: un corte a media escritura no deja el JSON a medias.
+    temporal = ESTADO.with_suffix(".json.tmp")
+    temporal.write_text(json.dumps(datos, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporal, ESTADO)
     log(f"Estado guardado en {ESTADO.relative_to(BASE_DIR)}")
 
 
 # --------------------------------------------------------------------------- #
 
 def main() -> int:
-    faltan = [k for k in ("dni", "clave") if not ENV[k]]
+    faltan = [nombre for nombre, clave in (("PNP_DNI", "dni"),
+                                           ("PNP_CLAVE", "clave"),
+                                           ("NTFY_TOPIC", "ntfy_topic"))
+              if not ENV[clave]]
     if faltan:
-        log(f"ERROR: faltan los secrets: {', '.join('PNP_' + f.upper() for f in faltan)}")
+        log(f"ERROR: falta configurar en .env.local: {', '.join(faltan)}")
         return 1
 
     previo = leer_estado_previo()
     ahora = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    fallos_previos = int(previo.get("fallos_seguidos", 0))
     salida = {"actualizado": ahora, "sede": ENV["sede"],
               "objetivo": ENV["objetivo"], "hay_cupo": False,
               "cupos": [], "error": None,
-              "revisiones": int(previo.get("revisiones", 0)) + 1}
+              "revisiones": int(previo.get("revisiones", 0)) + 1,
+              "fallos_seguidos": 0,
+              "ultimo_latido": previo.get("ultimo_latido")}
+    fallo = False
 
     try:
         with sync_playwright() as pw:
@@ -293,24 +358,39 @@ def main() -> int:
         salida["cupos"] = cupos
         salida["hay_cupo"] = bool(cupos)
 
-        antes = sorted(c["fecha"] for c in previo.get("cupos", []))
-        ahora_f = sorted(c["fecha"] for c in cupos)
-        if cupos and ahora_f != antes:
+        # La huella incluye horas y cupos: si cambia la oferta de una misma
+        # fecha, vuelve a avisar en lugar de callarse.
+        def huella(lista: list[dict]) -> list:
+            return sorted([c["fecha"], c.get("cupos", ""), tuple(c.get("horas", []))]
+                          for c in lista)
+
+        if cupos and huella(cupos) != huella(previo.get("cupos", [])):
             log("*** CUPO NUEVO DETECTADO ***")
-            avisar_ntfy(cupos)
+            avisar_cupos(cupos)
         elif cupos:
             log("Mismos cupos que la revision anterior; no repito el aviso.")
         else:
             log("Sin cupos por ahora.")
 
+        if fallos_previos >= FALLOS_PARA_AVISAR:
+            avisar_recuperado()
+
     except Exception as e:  # noqa: BLE001
+        fallo = True
         log(f"ERROR en la revision: {e}")
         salida["error"] = str(e)[:300]
         salida["cupos"] = previo.get("cupos", [])
         salida["hay_cupo"] = bool(salida["cupos"])
+        salida["fallos_seguidos"] = fallos_previos + 1
+        # Un solo aviso al cruzar el umbral: ni silencio eterno ni spam.
+        if salida["fallos_seguidos"] == FALLOS_PARA_AVISAR:
+            avisar_averiado(salida["fallos_seguidos"], salida["error"])
+
+    if not fallo and toca_latido(previo) and enviar_latido(salida["revisiones"]):
+        salida["ultimo_latido"] = ahora
 
     escribir_estado(salida)
-    return 0
+    return 2 if fallo else 0
 
 
 if __name__ == "__main__":
