@@ -36,6 +36,18 @@ set -a; source .env.local; set +a
 : "${PNP_CLAVE:?Falta PNP_CLAVE en .env.local}"
 # Sin tema de ntfy el monitor correria a ciegas: nunca podria avisarte.
 : "${NTFY_TOPIC:?Falta NTFY_TOPIC en .env.local}"
+
+# Los valores de ejemplo no estan vacios: sin esto el monitor intentaria
+# entrar con "TU_DOCUMENTO" y el error seria incomprensible.
+case "$PNP_DNI" in TU_DOCUMENTO|TU_CLAVE)
+  err "Todavia no completaste .env.local: PNP_DNI sigue con el valor de ejemplo."
+  exit 1 ;;
+esac
+if [ "$PNP_CLAVE" = "TU_CLAVE" ]; then
+  err "Todavia no completaste .env.local: PNP_CLAVE sigue con el valor de ejemplo."
+  exit 1
+fi
+
 INTERVALO_MIN="${INTERVALO_MIN:-5}"
 
 PY="$(command -v python3 || command -v python)"
