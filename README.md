@@ -1,188 +1,326 @@
 # Alerta de citas PNP · Lunas oscurecidas
 
-Este proyecto revisa automáticamente si hay citas disponibles para **Lunas
-Oscurecidas** de la Policía Nacional del Perú y te avisa al celular mediante
-**ntfy** cuando aparece un cupo.
+Conseguir cita para lunas oscurecidas es difícil porque los cupos aparecen sin
+aviso y se agotan en minutos. Este programa revisa la página de la Policía
+Nacional del Perú **cada cinco minutos, día y noche**, y te manda una
+notificación al celular en cuanto aparece un cupo.
 
-Funciona desde tu propia computadora y tu propia conexión a internet en Perú.
-No usa GitHub Actions, no publica información en una web y no reserva citas.
-La reserva siempre la haces tú en la página de la PNP, donde se solicita captcha.
+Así se ve el aviso que recibirás:
 
-## Antes de empezar
+> 🚨 **CUPO DE CITA DISPONIBLE**
+> 15/09/2026 — Horas: 08:00, 08:30, 09:00 — Cupos: 3
+> Entra YA y reserva.
 
-Necesitas:
+**La cita la reservas tú.** El programa solo vigila y avisa: la página de la PNP
+pide un captcha para reservar, así que nadie puede hacerlo automáticamente.
 
-- Una PC con Windows 10/11 o una Mac conectada a internet.
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-- La app **ntfy** instalada en tu Android o iPhone.
-- Tu documento y clave del sistema de citas PNP.
+Todo funciona dentro de tu computadora. Tu documento y tu clave no salen de ahí,
+no se suben a internet y nadie más los ve.
 
-> La computadora debe permanecer encendida, con Docker Desktop abierto y sin entrar
-> en reposo para que el monitor continúe revisando las citas.
+---
 
-## 1. Descargar el proyecto
+## Lo que necesitas
 
-En GitHub pulsa **Code** → **Download ZIP** y descomprime el archivo en una carpeta,
-por ejemplo `Documentos/monitor-citas-pnp`.
+- Una computadora con **Windows 10/11** o una **Mac**, con internet.
+- Tu **documento y clave** del sistema de citas de la PNP (los mismos que usas
+  para entrar a la página).
+- Tu **celular** Android o iPhone.
+- Unos **20 minutos** para dejarlo todo instalado. Es solo la primera vez.
 
-No necesitas instalar Python, Playwright ni Chromium: Docker los ejecuta de forma
-aislada dentro del contenedor.
+> [!IMPORTANT]
+> La computadora tiene que quedarse **encendida y sin suspenderse** para seguir
+> vigilando. Si la apagas o se duerme, el programa deja de revisar y no te
+> avisará. Si usas laptop, déjala enchufada a la corriente.
 
-## 2. Instalar y preparar Docker Desktop
+No necesitas saber programar. Vas a copiar y pegar cuatro instrucciones.
 
-Descarga Docker Desktop para tu sistema operativo, instálalo y ábrelo. Espera a que
-indique que Docker está funcionando.
+---
 
-Para que el monitor se recupere después de reiniciar la computadora, activa esta
-opción en Docker Desktop:
+## Paso 1 · Descargar el programa
 
-- **macOS:** Settings → General → *Start Docker Desktop when you log in*.
-- **Windows:** Settings → General → *Start Docker Desktop when you sign in*.
+1. En esta misma página de GitHub, busca el botón verde **Code**.
+2. Pulsa **Download ZIP**.
+3. Busca el archivo descargado y descomprímelo:
+   - **Windows:** clic derecho → *Extraer todo* → *Extraer*.
+   - **Mac:** doble clic sobre el ZIP.
+4. Te quedará una carpeta llamada `citas-pnp-main`. **Muévela a Documentos**
+   para tenerla a mano.
 
-En una laptop, déjala conectada a la corriente y configura el sistema para evitar el
-reposo mientras esté funcionando.
+Deja esa carpeta abierta, la vas a necesitar en el paso 3.
 
-## 3. Crear tu configuración privada
+---
 
-Abre una terminal dentro de la carpeta que descomprimiste.
+## Paso 2 · Instalar Docker Desktop
 
-- **macOS:** abre Terminal, escribe `cd ` (con un espacio), arrastra la carpeta a la
-  ventana y pulsa Enter.
-- **Windows:** abre la carpeta en el Explorador, haz clic derecho en un espacio vacío
-  y elige **Open in Terminal**.
+Docker es un programa gratuito que se encarga de todo lo técnico por dentro
+(instala el navegador y las herramientas que hacen la revisión). Tú no vas a
+tocarlo: solo tiene que estar instalado y abierto.
 
-Luego crea tu archivo privado de configuración:
+1. Descárgalo desde [docker.com](https://www.docker.com/products/docker-desktop/)
+   eligiendo tu sistema (Windows o Mac).
+2. Instálalo aceptando todas las opciones que vienen por defecto.
+3. **Windows:** si te pide reiniciar la computadora, hazlo. Es normal.
+4. Ábrelo y espera. La primera vez tarda un par de minutos.
 
-```bash
-# macOS
-cp .env.local.example .env.local
+Sabrás que está listo cuando **el ícono de la ballena 🐳 aparezca fijo** y la
+ventana de Docker no muestre avisos rojos.
+
+### Para que se recupere solo si se reinicia la PC
+
+Dentro de Docker Desktop, entra a **Settings** (el engranaje ⚙️) → **General** y
+marca la casilla:
+
+- **Windows:** *Start Docker Desktop when you sign in*
+- **Mac:** *Start Docker Desktop when you log in*
+
+Así, si se corta la luz o reinicias, el monitor vuelve a arrancar solo.
+
+---
+
+## Paso 3 · Crear tu archivo de configuración
+
+Aquí le dices al programa quién eres y a dónde mandarte los avisos.
+
+### 3.1 · Copia el archivo de ejemplo
+
+Dentro de la carpeta `citas-pnp-main` verás un archivo llamado
+`.env.local.example`. Haz una **copia** de ese archivo en la misma carpeta
+(clic derecho → Copiar, clic derecho → Pegar) y **renombra la copia** a:
+
+```
+.env.local
 ```
 
-```powershell
-# Windows PowerShell
-Copy-Item .env.local.example .env.local
+Sí, empieza con un punto y no tiene nada después de `local`. Es correcto.
+
+> [!WARNING]
+> **Windows esconde las terminaciones de los archivos**, y eso hace que este
+> paso falle muy seguido. Antes de renombrar, en el Explorador ve a la pestaña
+> **Vista** y marca **Extensiones de nombre de archivo**. Si al terminar el
+> archivo se llama `.env.local.txt`, el programa no lo encontrará: quítale el
+> `.txt` del final.
+
+### 3.2 · Inventa tu canal privado de avisos
+
+Tu canal es un nombre secreto. Las notificaciones viajan por ahí, así que
+**cualquiera que adivine ese nombre puede ver tus avisos** o mandarte
+notificaciones falsas.
+
+No uses tu nombre ni algo fácil como `citas-pnp`. Escribe `citas-` seguido de
+unas 12 letras y números tecleados al azar, sin pensarlos. Por ejemplo:
+
+```
+citas-k4m9x2vqp7rt
 ```
 
-Abre el archivo `.env.local` con Bloc de notas, TextEdit en modo texto plano o VS Code
-y completa los valores:
+Anótalo en un papel: lo vas a escribir dos veces, en el archivo y en el celular.
+
+### 3.3 · Rellena el archivo
+
+Abre `.env.local` con el **Bloc de notas** (Windows) o **TextEdit** (Mac):
+clic derecho sobre el archivo → *Abrir con*.
+
+Completa solo las líneas marcadas y **no borres ni muevas nada más**:
 
 ```dotenv
-PNP_DNI=TU_DOCUMENTO
-PNP_CLAVE=TU_CLAVE
-PNP_TIPO_DOC=1
-SEDE=1
-FECHA_OBJETIVO=
-NTFY_TOPIC=un-tema-largo-y-dificil-de-adivinar
-INTERVALO_MIN=5
+PNP_DNI=12345678              ← tu número de documento
+PNP_CLAVE=tuclavesecreta      ← tu clave de la página PNP
+PNP_TIPO_DOC=1                ← 1 si usas DNI, 2 si usas carnet de extranjería
+SEDE=1                        ← 1 es Lima–La Victoria; cámbialo solo si la PNP te indica otro
+FECHA_OBJETIVO=               ← déjalo vacío (ver abajo)
+NTFY_TOPIC=citas-k4m9x2vqp7rt ← el nombre secreto que inventaste
+INTERVALO_MIN=5               ← revisar cada 5 minutos
 ```
 
-Notas:
+Escribe los valores **pegados al signo `=`**, sin espacios ni comillas.
+Las flechas y los textos de la derecha son explicaciones: no los copies.
 
-- `PNP_TIPO_DOC=1` es DNI; usa `2` para carnet de extranjería.
-- `SEDE=1` corresponde a Lima–La Victoria. Cámbialo si la PNP te indica otro código.
-- Deja `FECHA_OBJETIVO` vacío para recibir cualquier cita. Si ya tienes una cita y
-  buscas una más próxima, escribe la fecha actual como `AAAA-MM-DD`.
-- `NTFY_TOPIC` es **obligatorio**: es tu canal privado de alertas. Cualquiera que
-  conozca el nombre puede leer tus avisos, así que no uses uno adivinable ni lo
-  publiques en ningún sitio. Genera uno al azar así:
+Sobre `FECHA_OBJETIVO`: déjalo vacío para que te avise de **cualquier** cita.
+Solo si ya tienes una cita agendada y buscas una más cercana, escribe la fecha
+de la que ya tienes, en formato `2026-09-15`. Así te avisará únicamente de
+citas anteriores a esa.
 
-  ```bash
-  # macOS
-  echo "citas-$(openssl rand -hex 8)"
-  ```
+Guarda el archivo y ciérralo.
 
-  ```powershell
-  # Windows PowerShell
-  "citas-" + [System.Guid]::NewGuid().ToString("N").Substring(0,16)
-  ```
+> [!CAUTION]
+> Este archivo contiene tu clave de la PNP. **No se lo mandes a nadie** ni lo
+> subas a ningún sitio. Se queda solo en tu computadora.
 
-Nunca compartas `.env.local`: contiene tus credenciales PNP.
+---
 
-## 4. Configurar ntfy en el celular
+## Paso 4 · Preparar el celular
 
-1. Instala **ntfy** desde App Store o Google Play.
-2. Abre la app y pulsa `+` para añadir una suscripción.
-3. Escribe exactamente el mismo valor que colocaste en `NTFY_TOPIC`.
-4. Permite las notificaciones cuando el celular las solicite.
+1. Instala la app **ntfy** desde App Store o Google Play. Es gratuita.
+   El ícono es una campanita verde.
+2. Ábrela y pulsa el botón **+**.
+3. Escribe **exactamente** el mismo nombre secreto que pusiste en `NTFY_TOPIC`.
+   Revisa letra por letra: si hay una sola diferencia, no llegará ningún aviso.
+4. Pulsa **Subscribe** y **acepta** cuando el celular pida permiso para enviarte
+   notificaciones.
 
-## 5. Iniciar el monitor
+> [!TIP]
+> Entra a los ajustes de notificaciones del celular y permite que ntfy suene
+> aunque el teléfono esté en silencio o en modo "no molestar". Un cupo dura
+> pocos minutos y de noche te lo puedes perder.
 
-En la misma terminal ejecuta:
+---
+
+## Paso 5 · Encender el monitor
+
+Ahora sí hay que usar la terminal. Es solo copiar y pegar una línea.
+
+### 5.1 · Abre la terminal dentro de la carpeta
+
+- **Windows 11:** abre la carpeta `citas-pnp-main`, haz clic derecho sobre un
+  espacio vacío y elige **Abrir en Terminal** (o *Open in Terminal*).
+- **Windows 10:** abre la carpeta, mantén pulsada la tecla **Shift**, haz clic
+  derecho en un espacio vacío y elige **Abrir la ventana de PowerShell aquí**.
+- **Mac:** abre **Terminal** (búscala con la lupa 🔍 arriba a la derecha).
+  Escribe `cd ` — la palabra *cd*, un espacio — y luego **arrastra la carpeta**
+  desde el Finder hasta la ventana negra. Pulsa Enter.
+
+**Comprueba que estás en el sitio correcto.** Escribe esto y pulsa Enter:
+
+```bash
+ls
+```
+
+(En Windows escribe `dir` en lugar de `ls`.)
+
+Tienes que ver una lista que incluya `Dockerfile` y `checker.py`. Si no
+aparecen, estás en otra carpeta: repite el paso.
+
+### 5.2 · Enciéndelo
+
+Copia esta línea, pégala en la terminal y pulsa Enter:
 
 ```bash
 docker compose up -d --build
 ```
 
-La primera instalación tarda algunos minutos porque Docker descarga Chromium. Al
-terminar, el monitor revisa el sistema PNP cada cinco minutos y se reinicia solo si
-Docker Desktop o la computadora se reinician.
+> En Windows, para pegar en la terminal se usa **clic derecho**, no Ctrl+V.
 
-Para confirmar que funciona:
+**La primera vez tarda entre 5 y 15 minutos** y verás muchísimo texto pasando.
+Es normal: está descargando el navegador que hará las revisiones. No cierres la
+ventana. Solo pasa la primera vez; las siguientes son cuestión de segundos.
+
+Cuando termine y te devuelva el cursor, ya está funcionando.
+
+---
+
+## Paso 6 · Comprobar que todo quedó bien
+
+Pega esto en la terminal:
 
 ```bash
-docker compose logs -f monitor-citas
+docker compose logs --tail=20 monitor-citas
 ```
 
-Debes ver mensajes parecidos a:
+Deberías ver algo parecido a:
 
 ```text
-Sesion iniciada.
-Fechas con cupo: 0 | Sin Cupos
-Sin cupos por ahora.
+[16:57:51] Sesion iniciada.
+[16:59:31] Fechas con cupo: 0  |  Sin Cupos
+[16:59:31] Sin cupos por ahora.
+[16:59:31] Latido diario difundido por ntfy.
 ```
 
-Pulsa `Ctrl+C` para dejar de ver los mensajes; **no** detiene el monitor.
+Eso significa que **todo funciona**: entró a la página, revisó y por ahora no
+hay cupos. Que diga "Sin cupos" es lo esperado la mayoría del tiempo.
 
-## Cómo llegan las alertas
+**Y lo más importante:** en tu celular debe haber llegado una notificación
+silenciosa que dice **"Monitor activo"**. Si llegó, el circuito completo
+funciona y ya puedes olvidarte. Si no llegó, revisa el paso 4: casi siempre es
+que el nombre secreto está escrito distinto en el archivo y en la app.
 
-Recibirás tres tipos de notificación, para que el silencio nunca sea ambiguo:
+Ya puedes **cerrar la ventana de la terminal**. El monitor sigue trabajando por
+su cuenta.
 
-| Notificación | Cuándo llega |
+---
+
+## Qué avisos vas a recibir
+
+| Aviso | Qué significa |
 |---|---|
-| 🚨 **Cupo disponible** | Aparece una fecha con cupo. Incluye fecha, horarios y número de cupos; al tocarla se abre la página de la PNP. |
-| ⚠️ **Monitor averiado** | Tres revisiones seguidas fallaron. Suele significar que tu clave PNP caducó o que el sitio cambió. |
-| 💓 **Monitor activo** | Una vez al día, en silencio, para confirmar que sigue vigilando. |
+| 🚨 **CUPO DE CITA DISPONIBLE** | ¡Hay cita! Entra a la página de la PNP ya mismo. Suena fuerte. |
+| ⚠️ **MONITOR AVERIADO** | El programa lleva tres intentos sin poder revisar. Lo más común es que tu clave de la PNP haya caducado. |
+| 💓 **Monitor activo** | Llega una vez al día, en silencio. Es su forma de decirte "sigo vigilando". |
 
-El monitor no repite el mismo aviso: solo vuelve a alertar si cambia la fecha, el
-horario o la cantidad de cupos. Si no hay cupos, no envía nada.
+Si no hay cupos, **no recibirás nada**. Es normal pasar días sin notificaciones.
 
-La primera revisión manda un **Monitor activo** de inmediato. Si no lo recibes,
-la suscripción de ntfy no está bien configurada.
+Tampoco te repetirá el mismo aviso una y otra vez: solo vuelve a avisar si
+cambia la fecha, el horario o la cantidad de cupos.
 
-## Comandos útiles
+### Cuando llegue un aviso de cupo
+
+1. Toca la notificación: se abre la página de la PNP.
+2. Entra con tu documento y clave.
+3. Reserva la cita y **resuelve el captcha** (esa parte es manual).
+
+Ten en cuenta que los cupos vuelan. Que llegue el aviso no garantiza que el
+cupo siga libre cuando entres, sobre todo si tardas en verlo. No es un fallo del
+programa: simplemente alguien llegó antes.
+
+---
+
+## El día a día
+
+No tienes que hacer nada: el monitor trabaja solo y vuelve a arrancar si
+reinicias la computadora. Estas instrucciones son por si las necesitas.
+
+Ábrelas siempre desde la terminal en la carpeta `citas-pnp-main` (paso 5.1).
 
 ```bash
-# Confirmar que el monitor está activo
+# ¿Sigue funcionando?
 docker compose ps
 
-# Ver las últimas revisiones
+# Ver qué ha estado haciendo
 docker compose logs --tail=50 monitor-citas
 
-# Detenerlo temporalmente
+# Pausarlo (por ejemplo, si te vas de viaje)
 docker compose stop
 
-# Volver a iniciarlo
+# Reanudarlo
 docker compose start
 
-# Aplicar una actualización del proyecto
-docker compose up -d --build
-
-# Eliminar el contenedor (no elimina tu archivo .env.local)
-docker compose down
-
-# Probar una sola revisión y ver el resultado al momento
+# Revisar AHORA MISMO, sin esperar los 5 minutos
 docker compose run --rm monitor-citas bash ./run_local.sh --once
 ```
 
-El historial se guarda en la carpeta `datos/`, fuera del contenedor: sobrevive a
-reinicios y actualizaciones, así que el monitor no te repetirá un aviso que ya
-recibiste.
+Si cambiaste tu clave de la PNP, edita `.env.local` con la clave nueva y luego
+ejecuta `docker compose up -d --build` para que la tome.
 
-## Privacidad y límites
+---
 
-- Las credenciales permanecen solo en tu computadora, dentro de `.env.local`.
-- El monitor no usa GitHub ni una página web durante su funcionamiento.
-- La disponibilidad puede cambiar en segundos; una alerta no garantiza que el cupo
-  siga libre cuando abras el sistema.
-- La PNP solicita captcha para reservar, por lo que este proyecto solo consulta y
-  avisa.
+## Si algo no funciona
+
+| Lo que ves | Qué pasa y cómo se arregla |
+|---|---|
+| `docker: command not found` o `no se reconoce docker` | Docker Desktop no está instalado o no está abierto. Ábrelo, espera a que la ballena 🐳 quede fija y vuelve a intentar. |
+| `Cannot connect to the Docker daemon` | Docker está instalado pero apagado. Ábrelo y espera un minuto. |
+| `env file ... .env.local not found` | El archivo no existe o se llama `.env.local.txt`. Vuelve al paso 3.1 y muestra las extensiones en el Explorador. |
+| `Falta NTFY_TOPIC en .env.local` | Esa línea quedó vacía. Ábrelo y escribe tu nombre secreto pegado al `=`. |
+| `Todavia no completaste .env.local` | Dejaste los textos de ejemplo `TU_DOCUMENTO` o `TU_CLAVE`. Reemplázalos por tus datos reales. |
+| `El sitio rechazo el acceso` | Tu documento o clave están mal escritos, o la clave caducó. Pruébalos primero en la página de la PNP desde el navegador. |
+| No aparecen `Dockerfile` ni `checker.py` al escribir `ls` | La terminal está en otra carpeta. Repite el paso 5.1. |
+| Nunca llega ninguna notificación | El nombre secreto no coincide entre `.env.local` y la app ntfy. Compáralos letra por letra. |
+| Llegó "MONITOR AVERIADO" | Casi siempre la clave de la PNP caducó. Entra a la página desde el navegador, cámbiala si hace falta, actualiza `.env.local` y ejecuta `docker compose up -d --build`. |
+| Dejó de avisar sin más | Comprueba que la computadora no se haya suspendido y que Docker Desktop siga abierto. |
+
+Si necesitas empezar de cero, ejecuta `docker compose down` y repite desde el
+paso 5.2. Tu archivo `.env.local` no se borra.
+
+---
+
+## Privacidad
+
+- Tu documento y tu clave se quedan **solo en tu computadora**, dentro de
+  `.env.local`. No se envían a ningún servidor nuestro ni a GitHub.
+- Las revisiones salen desde **tu propia conexión a internet**, igual que si
+  entraras a la página tú mismo desde el navegador.
+- Las notificaciones viajan por ntfy.sh usando tu nombre secreto. Por eso
+  importa que sea difícil de adivinar y que no lo compartas.
+- Si le pasas este programa a un familiar, **cada persona debe inventar su
+  propio nombre secreto**. Si comparten el mismo, comparten las notificaciones.
+- El programa solo consulta y avisa. Nunca reserva citas ni modifica nada en la
+  página de la PNP.
