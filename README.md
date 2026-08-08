@@ -2,14 +2,8 @@
 
 Conseguir cita para lunas oscurecidas es difícil porque los cupos aparecen sin
 aviso y se agotan en minutos. Este programa revisa la página de la Policía
-Nacional del Perú **cada cinco minutos, día y noche**, y te manda una
-notificación al celular en cuanto aparece un cupo.
-
-Así se ve el aviso que recibirás:
-
-> 🚨 **CUPO DE CITA DISPONIBLE**
-> 15/09/2026 — Horas: 08:00, 08:30, 09:00 — Cupos: 3
-> Entra YA y reserva.
+Nacional del Perú cada pocos minutos, día y noche, y **te avisa en cuanto
+aparece un cupo**.
 
 **La cita la reservas tú.** El programa solo vigila y avisa: la página de la PNP
 pide un captcha para reservar, así que nadie puede hacerlo automáticamente.
@@ -18,6 +12,44 @@ Todo funciona dentro de tu computadora. Tu documento y tu clave no salen de ahí
 no se suben a internet y nadie más los ve.
 
 ---
+
+# 👉 Empieza aquí · Windows
+
+**[⬇️ Descargar MonitorCitasPNP.exe](https://github.com/josecruzado/citas-pnp/releases/latest/download/MonitorCitasPNP.exe)**
+
+Un solo archivo de 15 MB. No hay que instalar nada.
+
+1. **Descarga** el archivo con el enlace de arriba.
+2. **Ábrelo** con doble clic.
+3. **Escribe tu documento y tu clave**, y pulsa *Empezar a vigilar*.
+4. **Déjalo abierto.** Sonará una alarma y la ventana saltará al frente en
+   cuanto haya un cupo.
+
+Eso es todo. La próxima vez que lo abras, tus datos ya estarán puestos.
+
+> [!NOTE]
+> La primera vez, Windows mostrará una pantalla azul que dice **"Windows
+> protegió tu PC"**. Es normal: aparece con todos los programas que no pagan
+> una firma digital. Pulsa **Más información** y luego **Ejecutar de todas
+> formas**.
+
+> [!IMPORTANT]
+> La computadora tiene que quedarse **encendida y sin suspenderse**. Si la
+> apagas o se duerme, deja de vigilar. Si es laptop, déjala enchufada.
+
+**¿Quieres que también te avise al celular?** Marca la casilla *Avisarme también
+al celular*, instala la app **ntfy** (App Store o Google Play) y suscríbete al
+nombre que aparece en la ventana. Es opcional: con la alarma de la computadora
+ya funciona.
+
+---
+
+<details>
+<summary><b>Opción avanzada · Docker (Windows, Mac o Linux)</b> — para dejarlo corriendo en segundo plano sin ventana abierta</summary>
+
+Esta era la forma original de usarlo. Sigue funcionando y es la mejor si
+quieres que vigile permanentemente sin ninguna ventana abierta, o si no usas
+Windows. Requiere instalar Docker Desktop y usar la terminal una vez.
 
 ## Lo que necesitas
 
@@ -309,6 +341,8 @@ ejecuta `docker compose up -d --build` para que la tome.
 
 Si necesitas empezar de cero, ejecuta `docker compose down` y repite desde el
 paso 5.2. Tu archivo `.env.local` no se borra.
+
+</details>
 
 ---
 
