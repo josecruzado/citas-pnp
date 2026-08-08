@@ -79,6 +79,31 @@ def guardar_config(datos: dict) -> None:
         pass
 
 
+def guardar_evidencia(html: str, cupos: list[dict], etiqueta: str) -> Path | None:
+    """Deja constancia de por que se aviso de un cupo.
+
+    Si alguna vez avisa de algo que no existe, aqui queda el HTML exacto que
+    devolvio la PNP en ese instante, que es la unica forma de comprobarlo
+    despues (los cupos desaparecen en minutos y ya no se pueden reproducir).
+    """
+    try:
+        carpeta = carpeta_datos() / "evidencia"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        marca = datetime.now().strftime("%Y%m%d-%H%M%S")
+        resumen = [f"Detectado: {datetime.now():%d/%m/%Y %H:%M:%S}",
+                   f"Cartel del sitio (lblcupos): {etiqueta!r}", ""]
+        for c in cupos:
+            resumen.append(f"fecha={c['fecha']!r}  cupos={c['cupos']!r}  "
+                           f"horas={c['horas']}")
+        (carpeta / f"cupo-{marca}.txt").write_text("\n".join(resumen),
+                                                   encoding="utf-8")
+        destino = carpeta / f"cupo-{marca}.html"
+        destino.write_text(html, encoding="utf-8")
+        return destino
+    except OSError:
+        return None
+
+
 def sonar_alarma(detener: threading.Event) -> None:
     """Pitidos hasta que se silencie o pase medio minuto."""
     fin = time.time() + 30
@@ -131,16 +156,20 @@ class Vigilante(threading.Thread):
         anterior = None
         while not self.parar.is_set():
             try:
-                cupos = pnp.consultar_cupos(self.cfg["dni"], self.cfg["clave"],
-                                            self.cfg.get("tipo_doc", "1"),
-                                            self.cfg.get("sede", "1"))
+                sesion = pnp.SesionPNP(self.cfg["dni"], self.cfg["clave"],
+                                       self.cfg.get("tipo_doc", "1"),
+                                       self.cfg.get("sede", "1"))
+                cupos = sesion.consultar()
                 if fallos >= FALLOS_PARA_AVISAR:
                     self.avisar("recuperado")
                 fallos = 0
 
                 huella = [(c["fecha"], c["cupos"], tuple(c["horas"])) for c in cupos]
                 if cupos and huella != anterior:
-                    self.avisar("cupo", cupos=cupos)
+                    prueba = guardar_evidencia(sesion.evidencia, cupos,
+                                               sesion.etiqueta_cupos)
+                    self.avisar("cupo", cupos=cupos,
+                                cartel=sesion.etiqueta_cupos, prueba=prueba)
                 elif cupos:
                     self.avisar("sigue", cupos=cupos)
                 else:
@@ -330,7 +359,7 @@ class Ventana(tk.Tk):
         self.silenciar.set()
         webbrowser.open(pnp.URL_LOGIN)
 
-    def _alarma(self, cupos: list[dict]) -> None:
+    def _alarma(self, cupos: list[dict], cartel: str = "", prueba=None) -> None:
         self.silenciar.clear()
         threading.Thread(target=sonar_alarma, args=(self.silenciar,),
                          daemon=True).start()
@@ -341,6 +370,12 @@ class Ventana(tk.Tk):
         self.b_abrir.pack(fill="x", padx=26, pady=(4, 2), ipady=10)
         self.b_silenciar.pack(pady=(0, 4))
         self._apuntar(f"*** CUPO DISPONIBLE: {detalle} ***")
+        # El cartel del propio sitio permite juzgar de un vistazo si el aviso
+        # cuadra con lo que la PNP dice, sin salir de la ventana.
+        if cartel:
+            self._apuntar(f"    la PNP dice: {cartel!r}")
+        if prueba:
+            self._apuntar(f"    prueba guardada en {prueba}")
 
         # Traer la ventana al frente aunque este minimizada.
         self.deiconify()
@@ -364,7 +399,7 @@ class Ventana(tk.Tk):
                                f"({self.revisiones} revisiones).", COLOR_ESPERA)
                     self._apuntar("Sin cupos.")
                 elif t == "cupo":
-                    self._alarma(m["cupos"])
+                    self._alarma(m["cupos"], m.get("cartel", ""), m.get("prueba"))
                 elif t == "sigue":
                     self._apuntar("El mismo cupo de antes (no repito la alarma).")
                 elif t == "credenciales":

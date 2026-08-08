@@ -52,6 +52,10 @@ ID_CUPOS = "MainContent_idUcitas_lblcupos"
 RE_VACIO = re.compile(r"sin\s*cupos|seleccione|no\s*hay|^-+$", re.IGNORECASE)
 VALORES_VACIOS = {"", "0", "00", "-1"}
 
+# Una fecha real siempre lleva numeros ("15/09/2026", "15 setiembre 2026").
+# Exigirlos descarta cualquier relleno de texto sin arriesgar perder un cupo.
+RE_TIENE_FECHA = re.compile(r"\d{1,2}\D{0,12}\d{2,4}")
+
 TIMEOUT = 30
 
 
@@ -72,7 +76,7 @@ def _ocultos(pagina: str) -> dict:
         pagina, re.IGNORECASE)}
 
 
-def _opciones(pagina: str, id_select: str) -> list[dict]:
+def _opciones(pagina: str, id_select: str, exigir_fecha: bool = False) -> list[dict]:
     """Opciones de un <select>, ya filtradas: solo las que son cupos reales."""
     bloque = re.search(rf'<select[^>]*id="{id_select}".*?</select>',
                        pagina, re.S | re.IGNORECASE)
@@ -85,6 +89,8 @@ def _opciones(pagina: str, id_select: str) -> list[dict]:
         valor = _html.unescape(valor).strip()
         texto = _html.unescape(re.sub(r"<[^>]+>", "", texto)).strip()
         if valor in VALORES_VACIOS or not texto or RE_VACIO.search(texto):
+            continue
+        if exigir_fecha and not RE_TIENE_FECHA.search(texto):
             continue
         reales.append({"value": valor, "text": texto})
     return reales
@@ -123,6 +129,8 @@ class SesionPNP:
         self.s = requests.Session()
         self.s.headers.update({"User-Agent": UA,
                                "Accept-Language": "es-PE,es;q=0.9"})
+        self.evidencia = ""        # HTML de la ultima consulta
+        self.etiqueta_cupos = ""   # lo que el sitio dice en su cartel de cupos
 
     def _post(self, url: str, datos: dict) -> str:
         try:
@@ -188,12 +196,18 @@ class SesionPNP:
                 _etiqueta(detalle, ID_CUPOS))
 
     def consultar(self) -> list[dict]:
-        """Devuelve [{fecha, horas, cupos}] con las fechas que tienen cupo."""
+        """Devuelve [{fecha, horas, cupos}] con las fechas que tienen cupo.
+
+        Guarda ademas la ultima pagina en self.evidencia: si algun dia avisa de
+        un cupo que no existe, ahi queda el HTML exacto para comprobarlo.
+        """
         pagina = self._elegir_sede(self._abrir_formulario(self._entrar()))
         etiqueta = _etiqueta(pagina, ID_CUPOS)
+        self.evidencia = pagina
+        self.etiqueta_cupos = etiqueta
 
         salida = []
-        for fecha in _opciones(pagina, ID_FECHA):
+        for fecha in _opciones(pagina, ID_FECHA, exigir_fecha=True):
             item = {"fecha": fecha["text"], "horas": [], "cupos": etiqueta}
             try:
                 item["horas"], detalle = self._horas_de(pagina, fecha["value"])
