@@ -36,9 +36,20 @@ import requests
 import pnp
 
 APP = "Monitor de Citas PNP"
-INTERVALO_SEG = 120          # una revision cada 2 minutos
+
+# Ritmo de las revisiones. Se puede cambiar desde la ventana, incluso mientras
+# vigila. El minimo no es capricho: cada revision es una peticion al servidor
+# de la PNP y bajar de ahi solo aumenta el riesgo de que bloqueen la conexion,
+# sin encontrar los cupos antes.
+INTERVALO_POR_DEFECTO = 120
+INTERVALO_MINIMO = 30
+INTERVALO_MAXIMO = 3600
+RITMO_EXIGENTE = 60          # por debajo de esto, avisar al usuario
+
 REINTENTO_SEG = 30           # tras un fallo de red, esperar menos
 FALLOS_PARA_AVISAR = 3
+
+UNIDADES = {"segundos": 1, "minutos": 60}
 
 COLOR_FONDO = "#f4f5f7"
 COLOR_TEXTO = "#1c1e21"
@@ -77,6 +88,18 @@ def guardar_config(datos: dict) -> None:
                            encoding="utf-8")
     except OSError:
         pass
+
+
+def _partir_intervalo(segundos: int) -> tuple[int, str]:
+    """Segundos -> (cantidad, unidad) en la forma mas legible para mostrar."""
+    if segundos >= 60 and segundos % 60 == 0:
+        return segundos // 60, "minutos"
+    return segundos, "segundos"
+
+
+def _describir_ritmo(segundos: int) -> str:
+    veces = round(3600 / segundos)
+    return f"{veces} revisión por hora" if veces == 1 else f"{veces} revisiones por hora"
 
 
 def guardar_evidencia(html: str, cupos: list[dict], etiqueta: str) -> Path | None:
@@ -147,18 +170,36 @@ class Vigilante(threading.Thread):
         self.cfg = cfg
         self.buzon = buzon
         self.parar = threading.Event()
+        self.intervalo = int(cfg.get("intervalo", INTERVALO_POR_DEFECTO))
+        # Permite acortar la espera en curso cuando cambia el intervalo, en vez
+        # de obligar a esperar el ciclo entero para que surta efecto.
+        self.despertar = threading.Event()
 
     def avisar(self, tipo: str, **extra) -> None:
         self.buzon.put({"tipo": tipo, **extra})
 
+    def _esperar(self, segundos: float, seguir_intervalo: bool = True) -> None:
+        """Espera, despertando antes si cambia el intervalo o se pide parar."""
+        inicio = time.monotonic()
+        while not self.parar.is_set():
+            self.despertar.clear()
+            objetivo = self.intervalo if seguir_intervalo else segundos
+            restante = objetivo - (time.monotonic() - inicio)
+            if restante <= 0:
+                return
+            self.despertar.wait(restante)
+
     def run(self) -> None:
         fallos = 0
         anterior = None
+        sesion = None
         while not self.parar.is_set():
+            espera, seguir = self.intervalo, True
             try:
-                sesion = pnp.SesionPNP(self.cfg["dni"], self.cfg["clave"],
-                                       self.cfg.get("tipo_doc", "1"),
-                                       self.cfg.get("sede", "1"))
+                if sesion is None:
+                    sesion = pnp.SesionPNP(self.cfg["dni"], self.cfg["clave"],
+                                           self.cfg.get("tipo_doc", "1"),
+                                           self.cfg.get("sede", "1"))
                 cupos = sesion.consultar()
                 if fallos >= FALLOS_PARA_AVISAR:
                     self.avisar("recuperado")
@@ -168,24 +209,25 @@ class Vigilante(threading.Thread):
                 if cupos and huella != anterior:
                     prueba = guardar_evidencia(sesion.evidencia, cupos,
                                                sesion.etiqueta_cupos)
-                    self.avisar("cupo", cupos=cupos,
+                    self.avisar("cupo", cupos=cupos, espera=espera,
                                 cartel=sesion.etiqueta_cupos, prueba=prueba)
                 elif cupos:
-                    self.avisar("sigue", cupos=cupos)
+                    self.avisar("sigue", cupos=cupos, espera=espera)
                 else:
-                    self.avisar("vacio")
+                    self.avisar("vacio", espera=espera)
                 anterior = huella
-                espera = INTERVALO_SEG
 
             except pnp.CredencialesInvalidas as e:
                 self.avisar("credenciales", detalle=str(e))
                 return
             except pnp.ErrorPNP as e:
+                sesion = None          # empezar limpio en el proximo intento
                 fallos += 1
-                self.avisar("fallo", detalle=str(e), seguidos=fallos)
-                espera = REINTENTO_SEG if fallos < FALLOS_PARA_AVISAR else INTERVALO_SEG
+                if fallos < FALLOS_PARA_AVISAR:
+                    espera, seguir = REINTENTO_SEG, False
+                self.avisar("fallo", detalle=str(e), seguidos=fallos, espera=espera)
 
-            self.parar.wait(espera)
+            self._esperar(espera, seguir)
 
 
 # --------------------------------------------------------------------------- #
@@ -204,8 +246,14 @@ class Ventana(tk.Tk):
         self.vigilante: Vigilante | None = None
         self.silenciar = threading.Event()
         self.revisiones = 0
+        self._listo = False        # evita reaccionar a los widgets al crearlos
+        self.estado_base = "Escribe tus datos y pulsa el botón."
+        self.proxima: float | None = None
+        self.en_alarma = False
 
         self._construir()
+        self._listo = True
+        self._aplicar_intervalo()
         self._revisar_buzon()
         self.protocol("WM_DELETE_WINDOW", self._cerrar)
 
@@ -236,6 +284,39 @@ class Ventana(tk.Tk):
                                 relief="solid", bd=1)
         self.e_clave.pack(fill="x", padx=18, ipady=6)
         self.e_clave.insert(0, self.cfg.get("clave", ""))
+
+        # --- ritmo de revision ---
+        fila = tk.Frame(self.caja, bg="white")
+        fila.pack(fill="x", padx=18, pady=(16, 0))
+        tk.Label(fila, text="Revisar cada", bg="white", fg=COLOR_TEXTO,
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+
+        cantidad, unidad = _partir_intervalo(
+            int(self.cfg.get("intervalo", INTERVALO_POR_DEFECTO)))
+        self.v_cantidad = tk.StringVar(value=str(cantidad))
+        self.v_unidad = tk.StringVar(value=unidad)
+
+        self.sp_cantidad = ttk.Spinbox(fila, from_=1, to=60, width=5, justify="center",
+                                       textvariable=self.v_cantidad,
+                                       command=self._aplicar_intervalo)
+        self.sp_cantidad.pack(side="left", padx=(8, 6))
+        self.cb_unidad = ttk.Combobox(fila, values=list(UNIDADES), state="readonly",
+                                      width=10, textvariable=self.v_unidad)
+        self.cb_unidad.pack(side="left")
+        self.cb_unidad.bind("<<ComboboxSelected>>",
+                            lambda _e: self._aplicar_intervalo())
+        self.v_cantidad.trace_add("write", lambda *_: self._aplicar_intervalo())
+
+        self.l_ritmo = tk.Label(self.caja, text="", bg="white", fg=COLOR_SUAVE,
+                                font=("Segoe UI", 9), wraplength=440, justify="left")
+        self.l_ritmo.pack(anchor="w", padx=18, pady=(4, 0))
+
+        self.v_sonido = tk.BooleanVar(value=self.cfg.get("sonido", True))
+        tk.Checkbutton(self.caja, text="Sonar alarma cuando haya cupo",
+                       variable=self.v_sonido, bg="white", fg=COLOR_TEXTO,
+                       activebackground="white", font=("Segoe UI", 10),
+                       command=self._alternar_sonido
+                       ).pack(anchor="w", padx=14, pady=(12, 0))
 
         self.v_celular = tk.BooleanVar(value=bool(self.cfg.get("topic")))
         tk.Checkbutton(self.caja, text="Avisarme también al celular",
@@ -289,6 +370,17 @@ class Ventana(tk.Tk):
 
         self._alternar_celular(inicial=True)
 
+    def _alternar_sonido(self) -> None:
+        """Activa o silencia la alarma sonora, tambien la que este sonando."""
+        activo = self.v_sonido.get()
+        self.cfg["sonido"] = activo
+        guardar_config(self.cfg)
+        if not activo:
+            self.silenciar.set()          # corta la alarma en curso al instante
+            self._apuntar("Sonido silenciado. El aviso seguirá siendo visible.")
+        else:
+            self._apuntar("Sonido activado.")
+
     def _alternar_celular(self, inicial: bool = False) -> None:
         if self.v_celular.get():
             if not self.cfg.get("topic"):
@@ -301,6 +393,48 @@ class Ventana(tk.Tk):
         else:
             self.f_topic.pack_forget()
 
+    def _aplicar_intervalo(self) -> int | None:
+        """Valida el ritmo elegido, lo guarda y lo aplica aunque este vigilando."""
+        if not self._listo:
+            return None
+        try:
+            cantidad = int(self.v_cantidad.get())
+        except ValueError:
+            self.l_ritmo.configure(text="Escribe un número.", fg=COLOR_ALERTA)
+            return None
+        if cantidad < 1:
+            self.l_ritmo.configure(text="Escribe un número mayor que cero.",
+                                   fg=COLOR_ALERTA)
+            return None
+
+        segundos = cantidad * UNIDADES.get(self.v_unidad.get(), 60)
+        ajustado = max(INTERVALO_MINIMO, min(INTERVALO_MAXIMO, segundos))
+
+        if ajustado != segundos:
+            limite = "mínimo" if segundos < INTERVALO_MINIMO else "máximo"
+            texto, color = (f"El {limite} son {_partir_intervalo(ajustado)[0]} "
+                            f"{_partir_intervalo(ajustado)[1]}. Se usará ese.",
+                            COLOR_ALERTA)
+        elif ajustado < RITMO_EXIGENTE:
+            texto, color = (f"{_describir_ritmo(ajustado)}. Muy seguido: aumenta "
+                            "el riesgo de que la PNP bloquee tu conexión.",
+                            COLOR_ALERTA)
+        else:
+            texto, color = _describir_ritmo(ajustado) + ".", COLOR_SUAVE
+
+        self.l_ritmo.configure(text=texto, fg=color)
+        self.cfg["intervalo"] = ajustado
+        guardar_config(self.cfg)
+
+        # Si ya esta vigilando, el cambio surte efecto sin reiniciar nada.
+        if self.vigilante and self.vigilante.is_alive():
+            anterior = self.vigilante.intervalo
+            self.vigilante.intervalo = ajustado
+            self.vigilante.despertar.set()
+            if anterior != ajustado:
+                self._apuntar(f"Ritmo cambiado a {_describir_ritmo(ajustado)}.")
+        return ajustado
+
     def _copiar_topic(self) -> None:
         self.clipboard_clear()
         self.clipboard_append(self.cfg.get("topic", ""))
@@ -309,7 +443,16 @@ class Ventana(tk.Tk):
     # -- acciones ----------------------------------------------------------- #
 
     def _nota(self, texto: str, color: str = COLOR_SUAVE) -> None:
+        self.estado_base = texto
         self.l_estado.configure(text=texto, fg=color)
+
+    def _pintar_cuenta_atras(self) -> None:
+        """Anade al estado los segundos que faltan para la proxima revision."""
+        if self.en_alarma or not self.proxima or not self.vigilante:
+            return
+        restante = max(0, int(round(self.proxima - time.monotonic())))
+        sufijo = "ahora" if restante == 0 else f"en {restante} s"
+        self.l_estado.configure(text=f"{self.estado_base}  ·  próxima {sufijo}")
 
     def _apuntar(self, texto: str) -> None:
         self.historial.configure(state="normal")
@@ -324,6 +467,9 @@ class Ventana(tk.Tk):
         dni, clave = self.e_dni.get().strip(), self.e_clave.get().strip()
         if not dni or not clave:
             return self._nota("Falta tu documento o tu clave.", COLOR_ALERTA)
+        if self._aplicar_intervalo() is None:
+            return self._nota("Corrige el ritmo de revisión antes de empezar.",
+                              COLOR_ALERTA)
 
         self.cfg.update({"dni": dni, "clave": clave})
         if not self.v_celular.get():
@@ -335,6 +481,8 @@ class Ventana(tk.Tk):
         self.b_empezar.configure(text="Detener", bg="#6b7280",
                                  activebackground="#565c66")
         self.revisiones = 0
+        self.en_alarma = False
+        self.proxima = None
         self._nota("Conectando con el sistema de la PNP…", COLOR_ESPERA)
         self._apuntar("Vigilancia iniciada.")
 
@@ -352,6 +500,8 @@ class Ventana(tk.Tk):
                                  activebackground="#17406f")
         self.b_abrir.pack_forget()
         self.b_silenciar.pack_forget()
+        self.en_alarma = False
+        self.proxima = None
         self._nota("Detenido. Pulsa el botón para volver a vigilar.")
         self._apuntar("Vigilancia detenida.")
 
@@ -360,15 +510,19 @@ class Ventana(tk.Tk):
         webbrowser.open(pnp.URL_LOGIN)
 
     def _alarma(self, cupos: list[dict], cartel: str = "", prueba=None) -> None:
+        self.en_alarma = True
         self.silenciar.clear()
-        threading.Thread(target=sonar_alarma, args=(self.silenciar,),
-                         daemon=True).start()
+        # El aviso visual y el del celular llegan igual aunque este en silencio.
+        if self.v_sonido.get():
+            threading.Thread(target=sonar_alarma, args=(self.silenciar,),
+                             daemon=True).start()
         detalle = " · ".join(
             f"{c['fecha']} ({', '.join(c['horas'][:4]) or 'ver horarios'})"
             for c in cupos)
         self._nota(f"¡HAY CUPO!  {detalle}", COLOR_ALERTA)
         self.b_abrir.pack(fill="x", padx=26, pady=(4, 2), ipady=10)
-        self.b_silenciar.pack(pady=(0, 4))
+        if self.v_sonido.get():
+            self.b_silenciar.pack(pady=(0, 4))
         self._apuntar(f"*** CUPO DISPONIBLE: {detalle} ***")
         # El cartel del propio sitio permite juzgar de un vistazo si el aviso
         # cuadra con lo que la PNP dice, sin salir de la ventana.
@@ -392,9 +546,12 @@ class Ventana(tk.Tk):
             while True:
                 m = self.buzon.get_nowait()
                 t = m["tipo"]
+                if "espera" in m:
+                    self.proxima = time.monotonic() + m["espera"]
                 if t in ("vacio", "sigue", "cupo"):
                     self.revisiones += 1
                 if t == "vacio":
+                    self.en_alarma = False
                     self._nota(f"Vigilando. Sin cupos por ahora "
                                f"({self.revisiones} revisiones).", COLOR_ESPERA)
                     self._apuntar("Sin cupos.")
@@ -416,6 +573,7 @@ class Ventana(tk.Tk):
                     self._apuntar("Conexión recuperada.")
         except queue.Empty:
             pass
+        self._pintar_cuenta_atras()
         self.after(400, self._revisar_buzon)
 
     def _cerrar(self) -> None:

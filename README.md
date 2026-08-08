@@ -27,6 +27,25 @@ Un solo archivo de 15 MB. No hay que instalar nada.
 
 Eso es todo. La próxima vez que lo abras, tus datos ya estarán puestos.
 
+### Cada cuánto revisa
+
+En la ventana hay un control **"Revisar cada ___"**. Por defecto son 2 minutos.
+Puedes ponerlo desde **30 segundos** hasta **60 minutos**, y cambiarlo **mientras
+está vigilando**: se aplica al momento, sin reiniciar nada.
+
+Debajo verás cuántas revisiones por hora supone el ritmo elegido, y un aviso si
+te pasas de exigente.
+
+> [!TIP]
+> Bajar de 1 minuto no te hará encontrar cupos mucho antes, pero sí multiplica
+> las peticiones al servidor de la PNP y con ello el riesgo de que bloqueen tu
+> conexión. Con 1 o 2 minutos vas sobrado: un cupo dura varios minutos.
+
+El programa mantiene la sesión abierta entre revisiones, así que cada una cuesta
+**una sola petición** (unas centésimas de segundo). Por eso revisar cada 30
+segundos sigue siendo más liviano para la PNP que la versión antigua revisando
+cada 5 minutos.
+
 > [!NOTE]
 > La primera vez, Windows mostrará una pantalla azul que dice **"Windows
 > protegió tu PC"**. Es normal: aparece con todos los programas que no pagan
@@ -37,10 +56,23 @@ Eso es todo. La próxima vez que lo abras, tus datos ya estarán puestos.
 > La computadora tiene que quedarse **encendida y sin suspenderse**. Si la
 > apagas o se duerme, deja de vigilar. Si es laptop, déjala enchufada.
 
-**¿Quieres que también te avise al celular?** Marca la casilla *Avisarme también
-al celular*, instala la app **ntfy** (App Store o Google Play) y suscríbete al
-nombre que aparece en la ventana. Es opcional: con la alarma de la computadora
-ya funciona.
+### Silenciar el sonido
+
+La casilla **"Sonar alarma cuando haya cupo"** apaga los pitidos. Desmarcarla
+corta también la alarma que esté sonando en ese momento.
+
+El aviso **sigue llegando igual**: la ventana salta al frente, el mensaje se ve
+en rojo y la notificación al celular se envía. Solo desaparece el ruido, útil si
+lo dejas en una oficina o de noche al lado de la cama.
+
+Debajo de la alarma aparece además un botón **Silenciar alarma**, que calla solo
+esa vez sin cambiar la preferencia.
+
+### Avisos al celular
+
+Marca la casilla *Avisarme también al celular*, instala la app **ntfy** (App
+Store o Google Play) y suscríbete al nombre que aparece en la ventana. Es
+opcional: con la alarma de la computadora ya funciona.
 
 ---
 

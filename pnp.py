@@ -131,6 +131,8 @@ class SesionPNP:
                                "Accept-Language": "es-PE,es;q=0.9"})
         self.evidencia = ""        # HTML de la ultima consulta
         self.etiqueta_cupos = ""   # lo que el sitio dice en su cartel de cupos
+        self._form = ""            # ultima pagina con el formulario de citas
+        self.reconexiones = 0      # cuantas veces hubo que volver a entrar
 
     def _post(self, url: str, datos: dict) -> str:
         try:
@@ -195,13 +197,36 @@ class SesionPNP:
         return ([h["text"] for h in _opciones(detalle, ID_HORA)],
                 _etiqueta(detalle, ID_CUPOS))
 
+    def _consultar_formulario(self) -> str:
+        """Devuelve la pagina del formulario con las fechas ya cargadas.
+
+        Reutiliza la sesion abierta: basta reenviar el postback de la sede
+        sobre la ultima pagina, una sola peticion en lugar de las cinco que
+        cuesta entrar de cero. Solo si el sitio ha cerrado la sesion (deja de
+        devolver el formulario) se vuelve a hacer el recorrido completo.
+        """
+        if self._form:
+            try:
+                pagina = self._elegir_sede(self._form)
+                if ID_FECHA in pagina:
+                    self._form = pagina
+                    return pagina
+            except ErrorPNP:
+                pass  # sesion caida; se reintenta entrando de nuevo
+            self.reconexiones += 1
+
+        self._form = self._abrir_formulario(self._entrar())
+        pagina = self._elegir_sede(self._form)
+        self._form = pagina
+        return pagina
+
     def consultar(self) -> list[dict]:
         """Devuelve [{fecha, horas, cupos}] con las fechas que tienen cupo.
 
         Guarda ademas la ultima pagina en self.evidencia: si algun dia avisa de
         un cupo que no existe, ahi queda el HTML exacto para comprobarlo.
         """
-        pagina = self._elegir_sede(self._abrir_formulario(self._entrar()))
+        pagina = self._consultar_formulario()
         etiqueta = _etiqueta(pagina, ID_CUPOS)
         self.evidencia = pagina
         self.etiqueta_cupos = etiqueta
