@@ -1,0 +1,70 @@
+# Compila el ejecutable de Windows. No consulta el sitio de la PNP: eso ocurre
+# siempre en la maquina del usuario, desde su propia conexion.
+name: Ejecutable de Windows
+
+on:
+  workflow_dispatch:          # boton manual en la pestaña Actions
+  push:
+    tags: ["v*"]              # al publicar una version, ej. v1.0.0
+
+permissions:
+  contents: write             # necesario para adjuntar el .exe a la Release
+
+jobs:
+  compilar:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install --quiet requests pyinstaller
+
+      - name: Comprobar que la ventana se construye
+        # Windows-latest tiene sesion grafica, asi que Tk puede crear la ventana.
+        # Si un widget esta mal definido, esto falla antes de compilar.
+        run: |
+          python -c "import monitor_citas as m; v = m.Ventana(); v.destroy(); print('interfaz OK')"
+
+      - name: Compilar el .exe
+        run: >
+          pyinstaller --onefile --windowed
+          --name MonitorCitasPNP
+          --hidden-import pnp
+          monitor_citas.py
+
+      - name: Comprobar que el .exe existe y pesa lo razonable
+        shell: pwsh
+        run: |
+          $f = Get-Item dist\MonitorCitasPNP.exe
+          $mb = [math]::Round($f.Length / 1MB, 1)
+          Write-Host "MonitorCitasPNP.exe = $mb MB"
+          if ($mb -gt 60) { throw "El ejecutable pesa demasiado ($mb MB)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MonitorCitasPNP
+          path: dist/MonitorCitasPNP.exe
+
+      - name: Publicar en Releases
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/MonitorCitasPNP.exe
+          body: |
+            ## Monitor de Citas PNP · Lunas oscurecidas
+
+            Descarga **MonitorCitasPNP.exe**, ábrelo, escribe tu documento y tu
+            clave, y pulsa *Empezar a vigilar*. Déjalo abierto: sonará una
+            alarma en cuanto aparezca un cupo.
+
+            No necesitas instalar nada más.
+
+            > Windows mostrará el aviso azul "Windows protegió tu PC" porque el
+            > programa no está firmado digitalmente. Pulsa **Más información** y
+            > luego **Ejecutar de todas formas**.
